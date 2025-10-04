@@ -1,7 +1,5 @@
 # Database-werk
 
-Database LCCU verder uitwerken.
-
 ## Databaseconfiguratie
 
 De applicatie gebruikt standaard de historische UNC-locatie op het netwerk:
