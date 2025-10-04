@@ -353,7 +353,7 @@ class LCCUDatabaseApp:
         merk = self.state.merk_var.get()
         os_val = self.state.os_var.get()
         dienst = self.state.dienst_var.get()
-        datum_ingave = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        datum_ingave = self.current_iso_timestamp()
         unique_id = None
         if sin != "BIJSTAND":
             if len(sin) != 8 or not (sin[:4].isalpha() and sin[4:].isdigit()):
@@ -385,10 +385,35 @@ class LCCUDatabaseApp:
     def save_data_from_popup(self):
         soort_bijstand = self.state.soort_bijstand_var.get()
         medewerkers_list = [w.get() for w in self.state.medewerker_widgets]
-        start_bijstand = self.state.start_bijstand_var.get()
-        einde_bijstand = self.state.einde_bijstand_var.get()
+        start_input = self.state.start_bijstand_var.get()
+        einde_input = self.state.einde_bijstand_var.get()
         try:
-            datum_ingave = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            start_dt = (
+                self.parse_dutch_datetime(start_input)
+                if start_input and start_input.strip()
+                else None
+            )
+            einde_dt = (
+                self.parse_dutch_datetime(einde_input)
+                if einde_input and einde_input.strip()
+                else None
+            )
+        except ValueError:
+            messagebox.showerror(
+                "Fout", "Ongeldig datumformaat! Gebruik: dd-mm-jjjj uu:mm"
+            )
+            return
+
+        if start_dt and einde_dt and einde_dt < start_dt:
+            messagebox.showerror(
+                "Fout", "Einde bijstand mag niet voor Start bijstand zijn!"
+            )
+            return
+
+        start_bijstand = self.datetime_to_iso(start_dt) if start_dt else None
+        einde_bijstand = self.datetime_to_iso(einde_dt) if einde_dt else None
+        try:
+            datum_ingave = self.current_iso_timestamp()
             conn = connect_db()
             cursor = conn.cursor()
             cursor.execute(
@@ -511,23 +536,7 @@ class LCCUDatabaseApp:
         ).pack(pady=5)
 
         def validate_dates():
-            try:
-                start = datetime.strptime(
-                    self.state.start_bijstand_var.get(), "%d-%m-%Y %H:%M"
-                )
-                end = datetime.strptime(
-                    self.state.einde_bijstand_var.get(), "%d-%m-%Y %H:%M"
-                )
-                if end < start:
-                    messagebox.showerror(
-                        "Fout", "Einde bijstand mag niet voor Start bijstand zijn!"
-                    )
-                else:
-                    self.save_data_from_popup()
-            except ValueError:
-                messagebox.showerror(
-                    "Fout", "Ongeldig datumformaat! Gebruik: dd-mm-jjjj uu:mm"
-                )
+            self.save_data_from_popup()
 
         tk.Button(
             self.state.popup_window, text="Opslaan", command=validate_dates
@@ -624,7 +633,36 @@ class LCCUDatabaseApp:
         self.tree_frame_zoek.grid_columnconfigure(0, weight=1)
 
     @staticmethod
+    def parse_dutch_datetime(value: str) -> datetime:
+        if value is None:
+            raise ValueError("Datumwaarde ontbreekt")
+        value = value.strip()
+        if not value:
+            raise ValueError("Datumwaarde ontbreekt")
+        return datetime.strptime(value, "%d-%m-%Y %H:%M")
+
+    @staticmethod
+    def datetime_to_iso(dt: datetime) -> str:
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    @classmethod
+    def parse_dutch_to_iso(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        dt = cls.parse_dutch_datetime(value)
+        return cls.datetime_to_iso(dt)
+
+    @staticmethod
+    def current_iso_timestamp() -> str:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    @staticmethod
     def format_iso_to_dutch(date_str):
+        if not date_str:
+            return ""
         try:
             dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
             return dt.strftime("%d-%m-%Y %H:%M")
@@ -696,11 +734,11 @@ class LCCUDatabaseApp:
             date_conditions.append("(date(o.datum_in_behandeling) BETWEEN ? AND ?)")
             params.extend([datum_vanaf, datum_tot])
             date_conditions.append(
-                "(date(substr(o.start_bijstand,7,4) || '-' || substr(o.start_bijstand,4,2) || '-' || substr(o.start_bijstand,1,2)) BETWEEN ? AND ?)"
+                "(date(CASE WHEN o.start_bijstand LIKE '__-__-____%' THEN substr(o.start_bijstand,7,4) || '-' || substr(o.start_bijstand,4,2) || '-' || substr(o.start_bijstand,1,2) ELSE o.start_bijstand END) BETWEEN ? AND ?)"
             )
             params.extend([datum_vanaf, datum_tot])
             date_conditions.append(
-                "(date(substr(o.einde_bijstand,7,4) || '-' || substr(o.einde_bijstand,4,2) || '-' || substr(o.einde_bijstand,1,2)) BETWEEN ? AND ?)"
+                "(date(CASE WHEN o.einde_bijstand LIKE '__-__-____%' THEN substr(o.einde_bijstand,7,4) || '-' || substr(o.einde_bijstand,4,2) || '-' || substr(o.einde_bijstand,1,2) ELSE o.einde_bijstand END) BETWEEN ? AND ?)"
             )
             params.extend([datum_vanaf, datum_tot])
             query += " AND (" + " OR ".join(date_conditions) + ")"
@@ -715,6 +753,10 @@ class LCCUDatabaseApp:
                 row = list(row)
                 if row[8]:
                     row[8] = self.format_iso_to_dutch(row[8])
+                if row[9]:
+                    row[9] = self.format_iso_to_dutch(row[9])
+                if row[10]:
+                    row[10] = self.format_iso_to_dutch(row[10])
                 self.result_tree.insert("", "end", values=row)
             conn.close()
             self.root.after(
@@ -895,7 +937,7 @@ class LCCUDatabaseApp:
     def _toggle_datum_in_behandeling(self):
         if self.state.datum_in_behandeling_checkbox_var.get():
             self.state.datum_in_behandeling_edit_var.set(
-                datetime.now().strftime("%Y-%m-%d %H:%M")
+                datetime.now().strftime("%d-%m-%Y %H:%M")
             )
         else:
             self.state.datum_in_behandeling_edit_var.set("")
@@ -904,6 +946,62 @@ class LCCUDatabaseApp:
         if not self._current_record_id:
             messagebox.showwarning("Fout", "Geen record geselecteerd.")
             return
+        datum_in_behandeling_input = (
+            self.state.datum_in_behandeling_edit_var.get().strip()
+        )
+        start_input = self.state.start_bijstand_edit_var.get().strip()
+        einde_input = self.state.einde_bijstand_edit_var.get().strip()
+
+        if (
+            self.state.datum_in_behandeling_checkbox_var.get()
+            and not datum_in_behandeling_input
+        ):
+            messagebox.showerror(
+                "Fout", "Datum in behandeling mag niet leeg zijn."
+            )
+            return
+
+        try:
+            start_dt = (
+                self.parse_dutch_datetime(start_input)
+                if start_input
+                else None
+            )
+            einde_dt = (
+                self.parse_dutch_datetime(einde_input)
+                if einde_input
+                else None
+            )
+        except ValueError:
+            messagebox.showerror(
+                "Fout", "Ongeldig datumformaat! Gebruik: dd-mm-jjjj uu:mm"
+            )
+            return
+
+        if start_dt and einde_dt and einde_dt < start_dt:
+            messagebox.showerror(
+                "Fout", "Einde bijstand mag niet voor Start bijstand zijn!"
+            )
+            return
+
+        if self.state.datum_in_behandeling_checkbox_var.get():
+            try:
+                datum_in_behandeling_iso = self.parse_dutch_to_iso(
+                    datum_in_behandeling_input
+                )
+            except ValueError:
+                messagebox.showerror(
+                    "Fout", "Ongeldig datumformaat! Gebruik: dd-mm-jjjj uu:mm"
+                )
+                return
+        else:
+            datum_in_behandeling_iso = None
+        start_bijstand_iso = (
+            self.datetime_to_iso(start_dt) if start_dt else None
+        )
+        einde_bijstand_iso = (
+            self.datetime_to_iso(einde_dt) if einde_dt else None
+        )
         try:
             conn = connect_db()
             cursor = conn.cursor()
@@ -932,11 +1030,9 @@ class LCCUDatabaseApp:
                     self.state.dienst_edit_var.get(),
                     self.state.soort_bijstand_edit_var.get(),
                     self.state.lccu_lid_edit_var.get(),
-                    self.state.datum_in_behandeling_edit_var.get()
-                    if self.state.datum_in_behandeling_checkbox_var.get()
-                    else None,
-                    self.state.start_bijstand_edit_var.get(),
-                    self.state.einde_bijstand_edit_var.get(),
+                    datum_in_behandeling_iso,
+                    start_bijstand_iso,
+                    einde_bijstand_iso,
                     self._current_record_id,
                 ),
             )
@@ -964,10 +1060,17 @@ class LCCUDatabaseApp:
         self.state.os_edit_var.set(values[5])
         self.state.dienst_edit_var.set(values[6])
         self.state.lccu_lid_edit_var.set(values[7])
-        self.state.datum_in_behandeling_edit_var.set(values[8])
-        self.state.start_bijstand_edit_var.set(values[9])
-        self.state.einde_bijstand_edit_var.set(values[10])
-        self.state.datum_in_behandeling_checkbox_var.set(bool(values[8]))
+        has_datum_in_behandeling = bool(values[8])
+        self.state.datum_in_behandeling_edit_var.set(
+            self.format_iso_to_dutch(values[8]) if values[8] else ""
+        )
+        self.state.start_bijstand_edit_var.set(
+            self.format_iso_to_dutch(values[9]) if values[9] else ""
+        )
+        self.state.einde_bijstand_edit_var.set(
+            self.format_iso_to_dutch(values[10]) if values[10] else ""
+        )
+        self.state.datum_in_behandeling_checkbox_var.set(has_datum_in_behandeling)
         self.state.notebook.select(self.bewerken_frame)
 
     def run(self):
