@@ -6,6 +6,7 @@ import sys
 import os
 import random
 import tkinter.font as tkFont
+from typing import Sequence
 
 from config import get_database_path
 
@@ -140,6 +141,81 @@ def check_or_create_database():
     create_table()
     create_medewerkers_bijstand_table()
     normalize_datetime_fields()
+
+
+def insert_bijstand_record(
+    *,
+    soort_bijstand: str,
+    dienst: str,
+    medewerkers: Sequence[str],
+    start_bijstand: str | None,
+    einde_bijstand: str | None,
+    sin: str = "BIJSTAND",
+    datum_ingave: str | None = None,
+    unique_id: int | None = None,
+) -> int:
+    """Insert a bijstand record and return the created object ID.
+
+    This helper mirrors the logic that is triggered from the GUI popup but keeps
+    it accessible for testing so we can verify database behaviour without a
+    graphical environment.
+    """
+
+    if datum_ingave is None:
+        datum_ingave = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if unique_id is None:
+        unique_id = random.randint(1000, 9999)
+
+    with connect_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO objecten (
+                sin,
+                type,
+                subcategorie,
+                merk,
+                os,
+                dienst,
+                datum_ingave,
+                unique_id,
+                soort_bijstand,
+                aantal_medewerkers,
+                start_bijstand,
+                einde_bijstand
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sin,
+                "Bijstand",
+                "",
+                "",
+                "",
+                dienst,
+                datum_ingave,
+                unique_id,
+                soort_bijstand,
+                len(medewerkers),
+                start_bijstand,
+                einde_bijstand,
+            ),
+        )
+        object_id = cursor.lastrowid
+        for medewerker in medewerkers:
+            cursor.execute(
+                """
+                INSERT INTO medewerkers_bijstand (
+                    object_id,
+                    medewerker,
+                    start_bijstand,
+                    einde_bijstand
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (object_id, medewerker, start_bijstand, einde_bijstand),
+            )
+    return object_id
 
 
 # --- HOOFD VARIABELEN ---
@@ -467,37 +543,14 @@ class LCCUDatabaseApp:
         einde_bijstand = self.datetime_to_iso(einde_dt) if einde_dt else None
         try:
             datum_ingave = self.current_iso_timestamp()
-            with connect_db() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                """
-                INSERT INTO objecten (sin, type, subcategorie, merk, os, dienst, datum_ingave, unique_id, soort_bijstand, aantal_medewerkers, start_bijstand, einde_bijstand)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    "BIJSTAND",
-                    soort_bijstand,
-                    "",
-                    "",
-                    "",
-                    self.state.dienst_var.get(),
-                    datum_ingave,
-                    random.randint(1000, 9999),
-                    soort_bijstand,
-                    len(medewerkers_list),
-                    start_bijstand,
-                    einde_bijstand,
-                ),
-                )
-                object_id = cursor.lastrowid
-                for medewerker in medewerkers_list:
-                    cursor.execute(
-                    """
-                    INSERT INTO medewerkers_bijstand (object_id, medewerker, start_bijstand, einde_bijstand)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (object_id, medewerker, start_bijstand, einde_bijstand),
-                    )
+            object_id = insert_bijstand_record(
+                soort_bijstand=soort_bijstand,
+                dienst=self.state.dienst_var.get(),
+                medewerkers=medewerkers_list,
+                start_bijstand=start_bijstand,
+                einde_bijstand=einde_bijstand,
+                datum_ingave=datum_ingave,
+            )
             messagebox.showinfo("Succes", "Bijstand succesvol opgeslagen!")
             self.close_popup()
         except sqlite3.Error as e:
@@ -1097,13 +1150,35 @@ class LCCUDatabaseApp:
         if not values:
             return
         self._current_record_id = values[0]
-        self.state.sin_edit_var.set(values[1])
-        self.state.type_edit_var.set(values[2])
+        sin_value = values[1]
+        type_value = values[2]
+        valid_types = {"Mobile", "Computer", "Bijstand"}
+        is_bijstand_record = sin_value == "BIJSTAND" or type_value not in valid_types
+        normalized_type = "Bijstand" if is_bijstand_record else type_value
+        self.state.sin_edit_var.set(sin_value)
+        self.state.type_edit_var.set(normalized_type or "")
         self.state.subcategorie_edit_var.set(values[3])
         self.state.merk_edit_var.set(values[4])
         self.state.os_edit_var.set(values[5])
         self.state.dienst_edit_var.set(values[6])
         self.state.lccu_lid_edit_var.set(values[7])
+        if is_bijstand_record:
+            soort_bijstand_value = ""
+            try:
+                with connect_db() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT soort_bijstand FROM objecten WHERE id = ?",
+                        (self._current_record_id,),
+                    )
+                    result = cursor.fetchone()
+                if result:
+                    soort_bijstand_value = result[0] or ""
+            except sqlite3.Error as exc:
+                print(f"Databasefout bij ophalen bijstand: {exc}")
+            self.state.soort_bijstand_edit_var.set(soort_bijstand_value)
+        else:
+            self.state.soort_bijstand_edit_var.set("")
         has_datum_in_behandeling = bool(values[8])
         self.state.datum_in_behandeling_edit_var.set(
             self.format_datetime_for_display(values[8])
