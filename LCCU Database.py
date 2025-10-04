@@ -1100,9 +1100,20 @@ class LCCUDatabaseApp:
         einde_bijstand_iso = (
             self.datetime_to_iso(einde_dt) if einde_dt else None
         )
+        is_bijstand_record = (
+            self.state.type_edit_var.get().strip().lower() == "bijstand"
+            or self.state.sin_edit_var.get().strip().upper() == "BIJSTAND"
+        )
         try:
             with connect_db() as conn:
                 cursor = conn.cursor()
+                medewerkers_for_bijstand: list[str] = []
+                if is_bijstand_record:
+                    cursor.execute(
+                        "SELECT medewerker FROM medewerkers_bijstand WHERE object_id = ?",
+                        (self._current_record_id,),
+                    )
+                    medewerkers_for_bijstand = [row[0] for row in cursor.fetchall()]
                 cursor.execute(
                 """
                 UPDATE objecten SET
@@ -1134,7 +1145,41 @@ class LCCUDatabaseApp:
                     self._current_record_id,
                 ),
                 )
-            messagebox.showinfo("Succes", "Record bijgewerkt!")
+                if is_bijstand_record:
+                    cursor.execute(
+                        "DELETE FROM medewerkers_bijstand WHERE object_id = ?",
+                        (self._current_record_id,),
+                    )
+                    for medewerker_name in medewerkers_for_bijstand:
+                        cursor.execute(
+                            """
+                            INSERT INTO medewerkers_bijstand (
+                                object_id,
+                                medewerker,
+                                start_bijstand,
+                                einde_bijstand
+                            )
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (
+                                self._current_record_id,
+                                medewerker_name,
+                                start_bijstand_iso,
+                                einde_bijstand_iso,
+                            ),
+                        )
+                    cursor.execute(
+                        "UPDATE objecten SET aantal_medewerkers = ? WHERE id = ?",
+                        (len(medewerkers_for_bijstand), self._current_record_id),
+                    )
+            success_message = "Record bijgewerkt!"
+            if is_bijstand_record:
+                success_message += (
+                    "\n\nTODO: Aanpassen van de medewerkerslijst is nog niet "
+                    "beschikbaar in dit scherm. Bijstandoverzichten blijven "
+                    "wel gesynchroniseerd met de aangepaste start- en eindtijden."
+                )
+            messagebox.showinfo("Succes", success_message)
             self.zoek_objecten()
         except sqlite3.Error as e:
             print(f"Databasefout bij bijwerken: {e}")
