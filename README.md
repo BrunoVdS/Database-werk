@@ -28,5 +28,17 @@ volgende opties (in aflopende prioriteit):
    ```
 
 Wanneer geen van deze opties beschikbaar is, valt de applicatie automatisch
+
+---
+
+Manual Regression Checklist
+
+Invalid SIN edit is rejected
+
+Start de applicatie en open het tabblad Bewerken.
+Selecteer een bestaand record met een geldig SIN (bijvoorbeeld ABCD1234).
+Pas het SIN-veld aan naar een ongeldig formaat, zoals A1C3.
+Klik op Bijwerken en bevestig dat een foutvenster verschijnt met de melding dat het SIN exact vier letters en vier cijfers moet bevatten.
+Sluit het dialoogvenster, laad het record opnieuw en controleer dat het oorspronkelijke SIN ongewijzigd is gebleven in de database.
 terug op het standaardpad. Hierdoor kan eenvoudig worden geschakeld tussen de
 productiedatabase en een lokale ontwikkeldatabase zonder de code aan te passen.
