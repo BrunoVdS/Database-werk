@@ -79,6 +79,15 @@ def normalize_datetime_fields():
             conn.close()
 
 
+def _validate_sin(value: str) -> str:
+    sin = value.strip()
+    if sin.upper() == "BIJSTAND":
+        return "BIJSTAND"
+    if len(sin) != 8 or not (sin[:4].isalpha() and sin[4:].isdigit()):
+        raise ValueError("SIN moet exact 4 letters en 4 cijfers bevatten!")
+    return sin[:4].upper() + sin[4:]
+
+
 def create_table():
     try:
         conn = connect_db()
@@ -485,13 +494,11 @@ class LCCUDatabaseApp:
         dienst = self.state.dienst_var.get()
         datum_ingave = self.current_iso_timestamp()
         unique_id = None
-        if sin != "BIJSTAND":
-            if len(sin) != 8 or not (sin[:4].isalpha() and sin[4:].isdigit()):
-                messagebox.showerror(
-                    "Fout", "SIN moet exact 4 letters en 4 cijfers bevatten!"
-                )
-                return
-            sin = sin[:4].upper() + sin[4:]
+        try:
+            sin = _validate_sin(sin)
+        except ValueError as exc:
+            messagebox.showerror("Fout", str(exc))
+            return
         try:
             with connect_db() as conn:
                 cursor = conn.cursor()
@@ -1100,9 +1107,17 @@ class LCCUDatabaseApp:
         einde_bijstand_iso = (
             self.datetime_to_iso(einde_dt) if einde_dt else None
         )
+        sin_input = self.state.sin_edit_var.get()
+        try:
+            normalized_sin = _validate_sin(sin_input)
+        except ValueError as exc:
+            messagebox.showerror("Fout", str(exc))
+            return
+        self.state.sin_edit_var.set(normalized_sin)
+
         is_bijstand_record = (
             self.state.type_edit_var.get().strip().lower() == "bijstand"
-            or self.state.sin_edit_var.get().strip().upper() == "BIJSTAND"
+            or normalized_sin == "BIJSTAND"
         )
         try:
             with connect_db() as conn:
@@ -1131,7 +1146,7 @@ class LCCUDatabaseApp:
                 WHERE id = ?
                 """,
                 (
-                    self.state.sin_edit_var.get(),
+                    normalized_sin,
                     self.state.type_edit_var.get(),
                     self.state.subcategorie_edit_var.get(),
                     self.state.merk_edit_var.get(),
