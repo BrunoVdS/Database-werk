@@ -7,6 +7,8 @@ import os
 import random
 import tkinter.font as tkFont
 
+from config import get_database_path
+
 
 def resource_path(relative_path):
     """Get absolute path to resource (compatible met PyInstaller onefile)."""
@@ -18,11 +20,17 @@ def resource_path(relative_path):
 
 
 # --- DATABASE SETUP ---
-DB_PATH = r"\\\\file01.storage\\smB-usr-lrnas\\lr-lccu\\Bruno\\objecten.db"
 
 
 def connect_db():
-    return sqlite3.connect(DB_PATH)
+    db_path = get_database_path()
+    try:
+        return sqlite3.connect(db_path)
+    except sqlite3.Error as exc:
+        raise sqlite3.OperationalError(
+            "Kan geen verbinding maken met de database op "
+            f"'{db_path}'. Controleer de netwerkverbinding of pas de configuratie aan."
+        ) from exc
 
 
 def _normalize_datetime_value(value: str | None) -> str | None:
