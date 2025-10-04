@@ -409,20 +409,19 @@ class LCCUDatabaseApp:
                 return
             sin = sin[:4].upper() + sin[4:]
         try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute(
+            with connect_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
                 """
                 INSERT INTO objecten (sin, type, subcategorie, merk, os, dienst, datum_ingave, unique_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (sin, t, subcat, merk, os_val, dienst, datum_ingave, unique_id),
-            )
-            conn.commit()
-            conn.close()
+                )
             messagebox.showinfo("Succes", "Gegevens succesvol opgeslagen!")
             self._reset_ingave_fields()
         except sqlite3.Error as e:
+            print(f"Databasefout bij opslaan: {e}")
             messagebox.showerror(
                 "Databasefout", f"Fout bij het opslaan: {str(e)}"
             )
@@ -460,9 +459,9 @@ class LCCUDatabaseApp:
         einde_bijstand = self.datetime_to_iso(einde_dt) if einde_dt else None
         try:
             datum_ingave = self.current_iso_timestamp()
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute(
+            with connect_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
                 """
                 INSERT INTO objecten (sin, type, subcategorie, merk, os, dienst, datum_ingave, unique_id, soort_bijstand, aantal_medewerkers, start_bijstand, einde_bijstand)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -481,21 +480,20 @@ class LCCUDatabaseApp:
                     start_bijstand,
                     einde_bijstand,
                 ),
-            )
-            object_id = cursor.lastrowid
-            for medewerker in medewerkers_list:
-                cursor.execute(
+                )
+                object_id = cursor.lastrowid
+                for medewerker in medewerkers_list:
+                    cursor.execute(
                     """
                     INSERT INTO medewerkers_bijstand (object_id, medewerker, start_bijstand, einde_bijstand)
                     VALUES (?, ?, ?, ?)
                     """,
                     (object_id, medewerker, start_bijstand, einde_bijstand),
-                )
-            conn.commit()
-            conn.close()
+                    )
             messagebox.showinfo("Succes", "Bijstand succesvol opgeslagen!")
             self.close_popup()
         except sqlite3.Error as e:
+            print(f"Databasefout bij opslaan bijstand: {e}")
             messagebox.showerror(
                 "Databasefout",
                 f"Fout bij het opslaan in de database: {str(e)}",
@@ -786,10 +784,10 @@ class LCCUDatabaseApp:
                 params.extend([datum_vanaf, datum_tot])
             query += " AND (" + " OR ".join(date_conditions) + ")"
         try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute(query, tuple(params))
-            results = cursor.fetchall()
+            with connect_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, tuple(params))
+                results = cursor.fetchall()
             for row in self.result_tree.get_children():
                 self.result_tree.delete(row)
             for row in results:
@@ -797,7 +795,6 @@ class LCCUDatabaseApp:
                 for index in (8, 9, 10):
                     row[index] = self.format_datetime_for_display(row[index])
                 self.result_tree.insert("", "end", values=row)
-            conn.close()
             self.root.after(
                 100,
                 lambda: self.auto_adjust_column_width(
@@ -805,6 +802,7 @@ class LCCUDatabaseApp:
                 ),
             )
         except sqlite3.Error as e:
+            print(f"Databasefout bij zoeken: {e}")
             messagebox.showerror(
                 "Databasefout", f"Fout bij het zoeken: {str(e)}"
             )
@@ -1042,9 +1040,9 @@ class LCCUDatabaseApp:
             self.datetime_to_iso(einde_dt) if einde_dt else None
         )
         try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute(
+            with connect_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
                 """
                 UPDATE objecten SET
                     sin = ?,
@@ -1074,12 +1072,11 @@ class LCCUDatabaseApp:
                     einde_bijstand_iso,
                     self._current_record_id,
                 ),
-            )
-            conn.commit()
-            conn.close()
+                )
             messagebox.showinfo("Succes", "Record bijgewerkt!")
             self.zoek_objecten()
         except sqlite3.Error as e:
+            print(f"Databasefout bij bijwerken: {e}")
             messagebox.showerror(
                 "Databasefout", f"Fout bij het bijwerken: {str(e)}"
             )
