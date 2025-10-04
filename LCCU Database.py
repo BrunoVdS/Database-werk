@@ -25,6 +25,51 @@ def connect_db():
     return sqlite3.connect(DB_PATH)
 
 
+def _normalize_datetime_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d-%m-%Y %H:%M", "%d-%m-%Y %H:%M:%S"):
+        try:
+            dt = datetime.strptime(value, fmt)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    return value
+
+
+def normalize_datetime_fields():
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = connect_db()
+        cursor = conn.cursor()
+        columns = [
+            "datum_in_behandeling",
+            "start_bijstand",
+            "einde_bijstand",
+        ]
+        for column in columns:
+            cursor.execute(
+                f"SELECT id, {column} FROM objecten WHERE {column} IS NOT NULL AND TRIM({column}) != ''"
+            )
+            rows = cursor.fetchall()
+            for object_id, value in rows:
+                normalized = _normalize_datetime_value(value)
+                if normalized and normalized != value:
+                    cursor.execute(
+                        f"UPDATE objecten SET {column} = ? WHERE id = ?",
+                        (normalized, object_id),
+                    )
+        conn.commit()
+    except sqlite3.Error as e:
+        print(f"Kon datums niet normaliseren: {e}")
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def create_table():
     try:
         conn = connect_db()
@@ -86,6 +131,7 @@ def create_medewerkers_bijstand_table():
 def check_or_create_database():
     create_table()
     create_medewerkers_bijstand_table()
+    normalize_datetime_fields()
 
 
 # --- HOOFD VARIABELEN ---
@@ -669,6 +715,10 @@ class LCCUDatabaseApp:
         except Exception:
             return date_str
 
+    @classmethod
+    def format_datetime_for_display(cls, value: str | None) -> str:
+        return cls.format_iso_to_dutch(value) if value else ""
+
     @staticmethod
     def format_date(date_str):
         try:
@@ -729,18 +779,11 @@ class LCCUDatabaseApp:
         if datum_vanaf and datum_tot:
             date_conditions = []
             if self.state.include_datum_ingave_var.get():
-                date_conditions.append("(date(o.datum_ingave) BETWEEN ? AND ?)")
+                date_conditions.append("date(o.datum_ingave) BETWEEN ? AND ?")
                 params.extend([datum_vanaf, datum_tot])
-            date_conditions.append("(date(o.datum_in_behandeling) BETWEEN ? AND ?)")
-            params.extend([datum_vanaf, datum_tot])
-            date_conditions.append(
-                "(date(CASE WHEN o.start_bijstand LIKE '__-__-____%' THEN substr(o.start_bijstand,7,4) || '-' || substr(o.start_bijstand,4,2) || '-' || substr(o.start_bijstand,1,2) ELSE o.start_bijstand END) BETWEEN ? AND ?)"
-            )
-            params.extend([datum_vanaf, datum_tot])
-            date_conditions.append(
-                "(date(CASE WHEN o.einde_bijstand LIKE '__-__-____%' THEN substr(o.einde_bijstand,7,4) || '-' || substr(o.einde_bijstand,4,2) || '-' || substr(o.einde_bijstand,1,2) ELSE o.einde_bijstand END) BETWEEN ? AND ?)"
-            )
-            params.extend([datum_vanaf, datum_tot])
+            for column in ("datum_in_behandeling", "start_bijstand", "einde_bijstand"):
+                date_conditions.append(f"date(o.{column}) BETWEEN ? AND ?")
+                params.extend([datum_vanaf, datum_tot])
             query += " AND (" + " OR ".join(date_conditions) + ")"
         try:
             conn = connect_db()
@@ -751,12 +794,8 @@ class LCCUDatabaseApp:
                 self.result_tree.delete(row)
             for row in results:
                 row = list(row)
-                if row[8]:
-                    row[8] = self.format_iso_to_dutch(row[8])
-                if row[9]:
-                    row[9] = self.format_iso_to_dutch(row[9])
-                if row[10]:
-                    row[10] = self.format_iso_to_dutch(row[10])
+                for index in (8, 9, 10):
+                    row[index] = self.format_datetime_for_display(row[index])
                 self.result_tree.insert("", "end", values=row)
             conn.close()
             self.root.after(
@@ -1062,13 +1101,13 @@ class LCCUDatabaseApp:
         self.state.lccu_lid_edit_var.set(values[7])
         has_datum_in_behandeling = bool(values[8])
         self.state.datum_in_behandeling_edit_var.set(
-            self.format_iso_to_dutch(values[8]) if values[8] else ""
+            self.format_datetime_for_display(values[8])
         )
         self.state.start_bijstand_edit_var.set(
-            self.format_iso_to_dutch(values[9]) if values[9] else ""
+            self.format_datetime_for_display(values[9])
         )
         self.state.einde_bijstand_edit_var.set(
-            self.format_iso_to_dutch(values[10]) if values[10] else ""
+            self.format_datetime_for_display(values[10])
         )
         self.state.datum_in_behandeling_checkbox_var.set(has_datum_in_behandeling)
         self.state.notebook.select(self.bewerken_frame)
