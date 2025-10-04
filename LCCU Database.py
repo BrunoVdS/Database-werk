@@ -7,6 +7,8 @@ import os
 import random
 import tkinter.font as tkFont
 
+from config import get_database_path
+
 
 def resource_path(relative_path):
     """Get absolute path to resource (compatible met PyInstaller onefile)."""
@@ -18,11 +20,18 @@ def resource_path(relative_path):
 
 
 # --- DATABASE SETUP ---
-DB_PATH = r"\\\\file01.storage\\smB-usr-lrnas\\lr-lccu\\Bruno\\objecten.db"
-
-
 def connect_db():
-    return sqlite3.connect(DB_PATH)
+    db_path = get_database_path()
+    try:
+        return sqlite3.connect(db_path)
+    except sqlite3.Error as exc:
+        messagebox.showerror(
+            "Databasefout",
+            "Kon geen verbinding maken met de database.\n"
+            "Controleer of het pad bereikbaar is of stel een lokaal pad in via de configuratie.\n\n"
+            f"Pad: {db_path}\nFout: {exc}",
+        )
+        return None
 
 
 def _normalize_datetime_value(value: str | None) -> str | None:
@@ -44,6 +53,8 @@ def normalize_datetime_fields():
     conn: sqlite3.Connection | None = None
     try:
         conn = connect_db()
+        if conn is None:
+            return
         cursor = conn.cursor()
         columns = [
             "datum_in_behandeling",
@@ -73,6 +84,8 @@ def normalize_datetime_fields():
 def create_table():
     try:
         conn = connect_db()
+        if conn is None:
+            return
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -106,6 +119,8 @@ def create_table():
 def create_medewerkers_bijstand_table():
     try:
         conn = connect_db()
+        if conn is None:
+            return
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -410,6 +425,8 @@ class LCCUDatabaseApp:
             sin = sin[:4].upper() + sin[4:]
         try:
             conn = connect_db()
+            if conn is None:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -461,6 +478,8 @@ class LCCUDatabaseApp:
         try:
             datum_ingave = self.current_iso_timestamp()
             conn = connect_db()
+            if conn is None:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -787,6 +806,8 @@ class LCCUDatabaseApp:
             query += " AND (" + " OR ".join(date_conditions) + ")"
         try:
             conn = connect_db()
+            if conn is None:
+                return
             cursor = conn.cursor()
             cursor.execute(query, tuple(params))
             results = cursor.fetchall()
@@ -1043,6 +1064,8 @@ class LCCUDatabaseApp:
         )
         try:
             conn = connect_db()
+            if conn is None:
+                return
             cursor = conn.cursor()
             cursor.execute(
                 """
