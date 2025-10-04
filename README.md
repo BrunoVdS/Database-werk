@@ -31,7 +31,7 @@ Wanneer geen van deze opties beschikbaar is, valt de applicatie automatisch
 
 ---
 
-Manual Regression Checklist
+## Manual Regression Checklist
 
 Invalid SIN edit is rejected
 
